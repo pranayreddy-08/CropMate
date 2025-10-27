@@ -1,78 +1,110 @@
-import { useState } from 'react';
-import { MapPin } from 'lucide-react';
+import { useEffect, useState } from "react";
 
-const LocationPicker = ({ onLocationSelect }) => {
-  const [placeName, setPlaceName] = useState('');
-  const [lat, setLat] = useState('');
-  const [lon, setLon] = useState('');
+export default function LocationPicker({ onLocationSelect }) {
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const handlePlaceNameChange = (e) => {
-    const value = e.target.value;
-    setPlaceName(value);
-    
-    // Simulate geocoding - in production, use Google Maps API
-    if (value) {
-      onLocationSelect({
-        placeName: value,
-        lat: lat || null,
-        lon: lon || null,
-      });
-    }
-  };
+  // Fetch suggestions from Nominatim (free) with lightweight debounce
+  useEffect(() => {
+    const controller = new AbortController();
 
-  const handleCoordChange = () => {
-    if (lat && lon) {
-      onLocationSelect({
-        placeName: placeName || `${lat}, ${lon}`,
-        lat: parseFloat(lat),
-        lon: parseFloat(lon),
-      });
-    }
+    const run = async () => {
+      if (!query || query.length < 3) {
+        setSuggestions([]);
+        return;
+      }
+      setLoading(true);
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+          query
+        )}&addressdetails=1&limit=5`;
+        const res = await fetch(url, {
+          signal: controller.signal,
+          headers: { "Accept-Language": "en" },
+        });
+        if (!res.ok) throw new Error("Geocoding failed");
+        const data = await res.json();
+        setSuggestions(
+          data.map((item) => ({
+            placeName: item.display_name,
+            lat: parseFloat(item.lat),
+            lon: parseFloat(item.lon),
+          }))
+        );
+      } catch {
+        // ignore errors silently for UX
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const t = setTimeout(run, 350); // debounce
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
+  }, [query]);
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        onLocationSelect?.({
+          placeName: "Current location",
+          lat: latitude,
+          lon: longitude,
+        });
+        setQuery("Current location");
+        setSuggestions([]);
+      },
+      () => {
+        // You can show a toast/alert if you want here
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
   };
 
   return (
-    <div className="space-y-3">
-      <div className="relative">
-        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+    <div className="relative">
+      <div className="flex gap-2">
         <input
-          type="text"
-          value={placeName}
-          onChange={handlePlaceNameChange}
-          placeholder="Enter city or village name..."
-          className="w-full pl-10 pr-4 py-2.5 border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-          aria-label="Location name"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search city, village, district…"
+          className="w-full px-4 py-2.5 border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
         />
+        <button
+          type="button"
+          onClick={useMyLocation}
+          className="px-3 py-2 rounded-lg border border-input hover:bg-muted text-sm"
+        >
+          Use my location
+        </button>
       </div>
 
-      <details className="text-sm text-muted-foreground">
-        <summary className="cursor-pointer hover:text-foreground transition-colors">
-          Or enter coordinates manually
-        </summary>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <input
-            type="number"
-            step="any"
-            value={lat}
-            onChange={(e) => setLat(e.target.value)}
-            onBlur={handleCoordChange}
-            placeholder="Latitude"
-            className="px-3 py-2 border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-            aria-label="Latitude"
-          />
-          <input
-            type="number"
-            step="any"
-            value={lon}
-            onChange={(e) => setLon(e.target.value)}
-            onBlur={handleCoordChange}
-            placeholder="Longitude"
-            className="px-3 py-2 border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-            aria-label="Longitude"
-          />
+      {!!suggestions.length && (
+        <div className="absolute z-20 mt-2 w-full bg-card border border-border rounded-lg shadow-lg max-h-72 overflow-auto">
+          {suggestions.map((s, i) => (
+            <button
+              key={`${s.lat}-${s.lon}-${i}`}
+              type="button"
+              onClick={() => {
+                onLocationSelect?.(s);
+                setQuery(s.placeName);
+                setSuggestions([]);
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-muted text-sm"
+            >
+              {s.placeName}
+            </button>
+          ))}
+          {loading && (
+            <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+          )}
         </div>
-      </details>
+      )}
     </div>
   );
-};
-
-export default LocationPicker;
+}

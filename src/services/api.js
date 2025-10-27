@@ -34,12 +34,27 @@ export const classifySoil = async (imageFile) => {
 };
 
 // Weather Data
-export const getWeather = async (lat, lon) => {
-  const response = await api.get('/weather', {
-    params: { lat, lon },
-  });
-  return response.data;
-};
+// Add or replace this function in src/services/api.js
+
+export async function getWeather(lat, lon) {
+  const url =
+    `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${lat}&longitude=${lon}` +
+    `&current=temperature_2m,relative_humidity_2m` +
+    `&daily=precipitation_sum` +
+    `&forecast_days=1&timezone=auto`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Weather API error");
+  const data = await res.json();
+
+  const temperature = data?.current?.temperature_2m ?? null;        // °C
+  const humidity = data?.current?.relative_humidity_2m ?? null;     // %
+  const rainfall = data?.daily?.precipitation_sum?.[0] ?? 0;        // mm (today)
+
+  return { temperature, humidity, rainfall };
+}
+
 
 // Demand Summary
 export const getDemandSummary = async (location) => {
